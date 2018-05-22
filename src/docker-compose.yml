@@ -1,0 +1,88 @@
+version: '2'
+services:
+  zookeeper:
+    image: confluent/zookeeper
+    ports:
+        - "2181:2181"
+
+  kafka:
+    image: confluent/kafka
+    ports:
+      - "9092:9092"
+    environment:
+      - JMX_PORT=9010
+    links:
+      - zookeeper
+    depends_on:
+      - zookeeper
+    volumes:
+      - /var/run/docker.sock:/var/run/docker.sock
+
+  kafka-manager:
+    image: hlebalbau/kafka-manager
+    restart: always
+    links:
+      - zookeeper
+      - kafka
+    depends_on:
+      - zookeeper
+      - kafka
+    ports:
+      - "9000:9000"
+    environment:
+      ZK_HOSTS: "zookeeper:2181"
+      APPLICATION_SECRET: "random-secret"
+    command: -Dpidfile.path=/dev/null
+
+  elasticsearch:
+    image: docker.elastic.co/elasticsearch/elasticsearch:6.2.4
+    restart: always
+    environment:
+      - bootstrap.memory_lock=true
+      - "ES_JAVA_OPTS=-Xms1g -Xmx1g"
+      - thread_pool.bulk.queue_size=500
+      - "xpack.security.enabled=false"
+      - "xpack.graph.enabled=false"
+      - "xpack.watcher.enabled=false"
+    ulimits:
+      memlock:
+        soft: -1
+        hard: -1
+    ports:
+      - 9200:9200
+
+  kibana:
+    image: docker.elastic.co/kibana/kibana:6.2.4
+    depends_on:
+      - elasticsearch
+    restart: always
+    environment:
+      - "ES_JAVA_OPTS=-Xms256m -Xmx256m"
+      - "ELASTICSEARCH_URL=http://elasticsearch:9200"
+      - "xpack.security.enabled=false"
+      - "xpack.apm.ui.enabled=false"
+      - "xpack.graph.enabled=false"
+      - "xpack.ml.enabled=false"
+      - "xpack.reporting.enabled=false"
+    ports:
+      - 5601:5601
+
+  shipper:
+    image: docker.elastic.co/logstash/logstash:6.2.4
+    depends_on:
+      - kafka
+      - zookeeper
+    restart: always
+    volumes:
+      - ./shipper/:/usr/share/logstash/config/
+    ports:
+      - 5100:5100
+      - 9600:9600
+
+  indexer:
+    image: docker.elastic.co/logstash/logstash:6.2.4
+    depends_on:
+      - elasticsearch
+    restart: always
+    volumes:
+      - ./indexer/:/usr/share/logstash/config/
